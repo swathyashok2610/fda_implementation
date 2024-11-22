@@ -1,0 +1,241 @@
+---
+title: "IMPLEMENTATION"
+author: "21MIA1077"
+date: "2024-11-17"
+output: html_document
+---
+1. Load the Dataset
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(ggplot2)
+library(e1071)
+
+```
+
+
+```{r}
+# Load the dataset
+data <- read.csv("~//Desktop//crop1.csv")
+```
+
+
+```{r}
+# Preview the data
+head(data)
+```
+
+2. Data Cleaning and Preprocessing
+
+```{r}
+# Remove rows with missing values
+data <- na.omit(data)
+
+```
+
+
+```{r}
+# Check structure
+str(data)
+```
+
+```{r}
+# Convert categorical variables to factors
+data$Area <- as.factor(data$Area)
+data$Item <- as.factor(data$Item)
+data$Element <- as.factor(data$Element)
+data$Year <- as.numeric(data$Year)
+```
+
+3. Exploratory Data Analysis (EDA)
+
+```{r}
+# Plot productivity trends over years
+ggplot(data, aes(x = Year, y = Value, color = Area)) +
+  geom_line() +
+  labs(title = "Agricultural Productivity Trends", y = "Productivity Value", x = "Year") +
+  theme_minimal()
+```
+
+
+```{r}
+# Top agricultural items by area
+data %>%
+  group_by(Item) %>%
+  summarise(TotalValue = sum(Value, na.rm = TRUE)) %>%
+  arrange(desc(TotalValue)) %>%
+  slice(1:10) %>%
+  ggplot(aes(x = reorder(Item, -TotalValue), y = TotalValue)) +
+  geom_bar(stat = "identity", fill = "black") +
+  coord_flip() +
+  labs(title = "Top 10 Agricultural Items by Total Value", x = "Item", y = "Total Value")
+```
+
+4. Build Machine Learning Models
+
+```{r}
+# Create a training and testing dataset
+set.seed(123)
+index <- createDataPartition(data$Value, p = 0.7, list = FALSE)
+train_data <- data[index, ]
+test_data <- data[-index, ]
+```
+
+1. Combine Rare Categories
+Group less frequent categories into a single "Other" category to reduce the number of levels.
+```{r}
+# Combine rare levels in the Area variable
+data$Area <- fct_lump(data$Area, n = 50)
+
+# Combine rare levels in the Item variable
+data$Item <- fct_lump(data$Item, n = 50)
+
+```
+
+2. Encode Categorical Variables
+Convert high-cardinality categorical variables into numeric representations such as:
+
+Label Encoding: Assign each category a unique integer.
+One-Hot Encoding: Create binary columns for each category.
+
+```{r}
+# Label encode categorical variables
+data$Area <- as.numeric(as.factor(data$Area))
+data$Item <- as.numeric(as.factor(data$Item))
+data$Element <- as.numeric(as.factor(data$Element))
+
+
+```
+
+3. Use a Model That Supports High-Cardinality Categorical Data
+Switch to models like Gradient Boosting (xgboost), which efficiently handle high-cardinality categorical features.
+
+
+```{r}
+library(xgboost)
+
+```
+
+
+```{r}
+# Convert target variable to numeric
+train_data$Value <- as.numeric(train_data$Value)
+
+# Ensure predictors are numeric
+train_matrix <- model.matrix(Value ~ Area + Item + Element + Year, data = train_data)[, -1]
+test_matrix <- model.matrix(Value ~ Area + Item + Element + Year, data = test_data)[, -1]
+
+```
+
+
+```{r}
+# Train xgboost model
+xgb_model <- xgboost(
+  data = as.matrix(train_matrix),           # Predictor matrix
+  label = train_data$Value,                 # Target variable
+  nrounds = 100,                            # Number of boosting rounds
+  objective = "reg:squarederror",           # Regression objective
+  verbose = 1                               # Show progress
+)
+ 
+```
+
+
+```{r}
+# Make predictions
+xgb_predictions <- predict(xgb_model, as.matrix(test_matrix))
+
+# Evaluate performance
+MAE <- mean(abs(xgb_predictions - test_data$Value))
+print(paste("Mean Absolute Error with xgboost:", MAE))
+
+```
+
+5. Feature Importance Analysis
+Use the trained xgboost model to analyze which features are most influential in predicting the target variable.
+```{r}
+# Calculate feature importance
+importance_matrix <- xgb.importance(model = xgb_model, feature_names = colnames(train_matrix))
+
+# View the feature importance
+print(importance_matrix)
+
+
+
+```
+
+
+```{r}
+# Plot feature importance
+xgb.plot.importance(importance_matrix, top_n = 10, measure = "Gain")
+```
+
+6. Forecast Future Trends
+Predict future values based on hypothetical or extended input data (e.g., projecting for future years).
+
+Prepare Future Data
+For example, let’s forecast for the years 2025–2030 for a specific region and crop.
+
+
+
+
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(dplyr)
+```
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(dplyr)
+
+# Read the dataset
+data <- read.csv("crop1.csv")
+
+# Set filtering criteria (adjust as needed)
+region <- "Afghanistan"
+crop <- "Almonds, with shell"
+element <- "Area harvested"
+
+# Filter the data
+filtered_data <- data %>%
+  filter(Area == region & Item == crop & Element == element) %>%
+  select(Year, Value) %>%
+  arrange(Year)
+
+# Debugging: Check filtered data
+print(filtered_data)
+
+# Check if filtered data is empty
+if (nrow(filtered_data) == 0) {
+  stop("No matching data found. Please verify the filtering criteria.")
+}
+
+# Ensure Value is numeric and remove invalid rows
+filtered_data <- filtered_data %>%
+  filter(!is.na(Value) & Value > 0)
+filtered_data$Value <- as.numeric(filtered_data$Value)
+
+# Convert to time series
+ts_data <- ts(filtered_data$Value, start = min(filtered_data$Year), frequency = 1)
+
+# Fit an ARIMA model
+fit <- auto.arima(ts_data)
+
+# Forecast for 2025–2030
+future_years <- 2025:2030
+forecast_data <- forecast(fit, h = length(future_years))
+
+# Print forecasted values
+print(forecast_data)
+
+# Plot the forecast
+plot(forecast_data, main = paste("Forecast for", crop, "in", region),
+     xlab = "Year", ylab = element)
+
+```
+
